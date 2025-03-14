@@ -1,31 +1,12 @@
----
-title: "PLM_Urban_perception"
-format: html
-editor: visual
-embed-resources: true
----
+# Script ensuring the data extraction and formatting part.
 
-# Data extraction and formating
-
-## Loading the libraries
-
-```{r}
-#| warning: false
 library(xml2)
 library(rvest)
 library(stringr)
 library(readr)
-library(tmap)
-library(ggridges)
 library(dplyr)
-library(ggplot2)
-```
 
 ## Parsing the html pages into a single dataframe format
-
-This function takes the **html** webpage file in entry, and extracts the different ratings and comment sections to put it into a **dataframe** output.
-
-```{r}
 parse <- function (page) {
   # Getting the city name
   loc <- page %>% html_elements(xpath = "//h1") %>%
@@ -70,7 +51,7 @@ parse <- function (page) {
     html_text() %>%
     as.numeric() %>%
     na.omit()
-
+  
   # Building the dataframe from the information
   data <- tibble(
     code = rep(code, length(comm_positif)),
@@ -93,44 +74,22 @@ parse <- function (page) {
   )
   return(data)
 }
-```
 
-Setting the **filepath** to access the dedicated folder where the html pages are stored, reading all the files and storing them into a **list** object:
-
-```{r}
+# TO BE ADAPTED DEPENDING ON WHERE THE PAGES ARE STORED
 htmlpath = "path/to/html/files"
-```
-
-```{r}
-#| echo: false
-htmlpath = '/Users/utilisateur/Documents/Charbon/VILLE IDEALE PROJET/VILLE IDEALE DATA'
-```
-
-```{r setup, include=FALSE}
-require("knitr")
-opts_knit$set(root.dir = htmlpath)
-```
-
-```{r}
+# Setting the working directory
+setwd(htmlpath)
 # Listing all the files from the folder
 list_pages <- list.files()
 # Storing all the files into a list
 pages <- lapply(list_pages, read_html, header=TRUE, sep=",")
-```
-
-Parsing all the elements from the list, and combining it into a single **dataframe**.
-
-```{r}
-#| warning: false
+head(pages)
 # Parsing all the html pages and binding it into a single dataframe
 commentaires_plm <- purrr::map(pages,parse) %>%
   dplyr::bind_rows()
 head(commentaires_plm)
-```
 
-## Additional formatting of the dataframe variables
-Dealing with the duplicates, date format, specifying numeric variables, creating an average of the different grades by categories. 
-```{r}
+## DATA FORMATTING
 # Removing the potential duplicates
 commentaires_plm <- commentaires_plm %>% distinct(loc, dates, user, .keep_all = T)
 # Formatting the dates
@@ -141,10 +100,6 @@ commentaires_plm[5:13] <- lapply(commentaires_plm[5:13], function(x) as.numeric(
 commentaires_plm$average <- commentaires_plm[5:13] %>% rowMeans() %>% round(1)
 # Showing the structure of the dataframe
 tibble::glimpse(commentaires_plm[, !names(commentaires_plm) %in% "user"])
-```
 
-Writing a **.csv** output file.
-```{r}
-# Writing the file
+# Writing the csv output file
 write_csv(commentaires_plm, "../comments_PLM.csv")
-```
