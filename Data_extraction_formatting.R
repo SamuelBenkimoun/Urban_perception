@@ -94,12 +94,17 @@ head(commentaires_plm)
 commentaires_plm <- commentaires_plm %>% distinct(loc, dates, user, .keep_all = T)
 # Formatting the dates
 commentaires_plm <- commentaires_plm %>% mutate(dates = lubridate::dmy(commentaires_plm$dates)) 
+# Creating a month-year date format to improve readability
+commentaires_plm <- commentaires_plm %>% mutate(month = format(as.Date(dates, format = "%d-%m-%Y"), "%Y-%m"))
 # Formatting the numeric values
 commentaires_plm[5:13] <- lapply(commentaires_plm[5:13], function(x) as.numeric(x))
 # Averaging the different categories to get the overall grade
 commentaires_plm$average <- commentaires_plm[5:13] %>% rowMeans() %>% round(1)
 # Showing the structure of the dataframe
 tibble::glimpse(commentaires_plm[, !names(commentaires_plm) %in% "user"])
+# Creating a city column
+commentaires_plm <- commentaires_plm %>% mutate(ville = str_to_title(str_remove(loc, " ?\\d*(ER|ÈME|E)? ARRONDISSEMENT.*")))
+
 
 # Writing the csv output file
 write_csv(commentaires_plm, "../comments_PLM.csv")
