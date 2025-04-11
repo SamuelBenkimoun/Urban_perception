@@ -1,10 +1,11 @@
 # Script handling the descriptive analysis part of the dataset
+library(dplyr)
 library(readr)
 library(sf)
 library(tmap)
 library(ggridges)
-library(dplyr)
 library(ggplot2)
+library(stringr)
 # Importing the formatted dataset
 # i.e. the output of the Data_extraction_formatting.R script
 htmlpath = "~/Documents/Charbon/VILLE IDEALE PROJET/comments_PLM.csv"
@@ -96,6 +97,7 @@ for (cat in categories_to_map) {
                         title = paste("Average", cat_label, "rating /10"))
   assign(paste0("map_", cat), map)
 }
+
 # Displaying the environment category map for exemple
 map_environment
 
@@ -118,7 +120,37 @@ tm_shape(comments_sf_ag) +
             legend.text.size = 0.8,
             legend.orientation = "landscape",
             legend.position = tm_pos_out(cell.v = "bottom", cell.h = "center")) +
+  tm_scalebar(position = c("left", "bottom"), width = 8) +
   tm_credits(text = stringr::str_c("Source: Ville Inventive, 2012-2024, IGN, 2023.\n", "Dataset average: ", round(mean(comments_sf_ag$average),2)),
              position = tm_pos_out(cell.v = "bottom", cell.h = "center"),
              size = 0.8
   )
+
+## PLOTTING THE RATING DISTRIBUTIONS
+
+# crop the name to just keep arrondissement (extract number)
+commentaires_plm$arr_label <- str_extract(commentaires_plm$loc, "\\d{1,2}(ER|E) ARRONDISSEMENT")
+# convert it to a factor, ordered based on the number value so that the labels will appear in the right order when plotting
+commentaires_plm <- commentaires_plm %>%
+  mutate(
+    # Extract the number only (e.g. "1" from "1ER ARRONDISSEMENT")
+    arr_num = as.numeric(str_extract(arr_label, "\\d+")),
+    # Reorder arr_label factor levels based on [invert order of] arr_num
+    arr_label = forcats::fct_reorder(arr_label, -arr_num)
+  )
+
+# Plotting the distribution by arrondissement in each city
+ggplot(data=commentaires_plm, aes(x=average, y=arr_label, fill=ville)) +
+  stat_density_ridges(
+    geom = "density_ridges_gradient", calc_ecdf = TRUE,
+    quantiles = 2, quantile_lines = TRUE
+  ) +
+  theme_minimal()+
+  scale_fill_viridis_d(alpha=.4, direction = -1, option = "H") +
+  xlab("Average (general) rating /10")+
+  scale_x_continuous(breaks = seq(0, 10, by = 1)) +
+  theme(legend.position = "none", plot.title = element_text(hjust = 0.5, face = "bold", size=18),
+        axis.title.y = element_blank(),
+  ) +
+  labs(title = "Distribution of ratings by arrondissements") + 
+  facet_wrap(~ville, scales = "free_y")
