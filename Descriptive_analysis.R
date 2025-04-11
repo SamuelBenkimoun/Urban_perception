@@ -32,7 +32,13 @@ comments_sf_ag <- aggregate(comments_sf, by=list(comments_sf$loc), FUN= mean) %>
   mutate(loc = Group.1) %>% # Keeping the arrondissement name in the loc column
   select(-Group.1)
 # Updating the field to tell in which city each arrondissement is
-comments_sf_ag$ville <- comments_sf_ag$loc <- sapply(strsplit(as.character(comments_sf_ag$loc), " "), `[`, 1)
+comments_sf_ag$ville <- sapply(strsplit(as.character(comments_sf_ag$loc), " "), `[`, 1)
+# Total of comments by arrondissements
+count_comments <- comments_sf$loc %>% 
+  table() %>% 
+  as_tibble() 
+colnames(count_comments) <- c("loc", "nb_comments")
+comments_sf_ag <- merge(comments_sf_ag, count_comments)
 # Mapping the values (general rating average by arrondissement)
 tm_shape(comments_sf_ag) +
   tm_fill(col = "average", 
@@ -40,7 +46,7 @@ tm_shape(comments_sf_ag) +
           title = "Average general rating /10", 
           style = 'cont', 
           textNA = "") +
-  tm_facets(by = "loc") +
+  tm_facets(by = "ville") +
   tm_scalebar(position = c("left", "bottom"))+
   tm_layout(legend.outside = TRUE,
             legend.title.size = 1,
