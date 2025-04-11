@@ -45,17 +45,18 @@ tm_shape(comments_sf_ag) +
           palette = "viridis", 
           title = "Average general rating /10", 
           style = 'cont', 
-          textNA = "") +
+          textNA = "",
+          legend.is.portrait = FALSE) +
   tm_facets(by = "ville") +
-  tm_scalebar(position = c("left", "bottom"))+
+  tm_scalebar(position = c("left", "bottom"), width = 8)+
   tm_layout(legend.outside = TRUE,
             legend.title.size = 1,
             legend.title.fontfamily = "Avenir Next",
             legend.title.fontface = "bold",
             legend.text.size = 0.8,
-            legend.position = tm_pos_out(cell.v = "center"),
-            credits.text = "ok",
-            credits.position = c("left", "bottom")) +
+            legend.orientation = "landscape",
+            legend.position = tm_pos_out(cell.v = "bottom", cell.h = "center")) +
   tm_credits(text = stringr::str_c("Source: Ville Inventive, 2012-2024, IGN, 2023.\n", "Dataset average: ", round(mean(comments_sf_ag$average),2)),
-             position = tm_pos_out())
-
+             position = tm_pos_out(cell.v = "bottom", cell.h = "center"),
+             size = 0.8
+             )
