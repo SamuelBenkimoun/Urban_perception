@@ -42,6 +42,8 @@ colnames(count_comments) <- c("loc", "nb_comments")
 comments_sf_ag <- merge(comments_sf_ag, count_comments)
 # Ratio of comments per inhabitants
 comments_sf_ag <- comments_sf_ag %>% mutate(comments_ratio = nb_comments/(pop/1000))
+# Adding an arrondissement number to produce labels on the maps
+#comments_sf_ag <- comments_sf_ag %>% mutate(num_label = as.numeric(str_extract(loc, "\\d+")))
 
 # Mapping function for the different variables and indicators
 generate_gradient_map <- function(var, title) {
@@ -56,6 +58,7 @@ generate_gradient_map <- function(var, title) {
             textNA = "",
             legend.is.portrait = FALSE) +
     tm_facets(by = "ville") +
+    #tm_labels(text = "num_label") +
     tm_scalebar(position = c("left", "bottom"), width = 8) +
     tm_layout(
       legend.outside = TRUE,
@@ -67,8 +70,8 @@ generate_gradient_map <- function(var, title) {
       legend.position = tm_pos_out(cell.v = "bottom", cell.h = "center")
     ) +
     tm_credits(
-      text = stringr::str_c("Source: Ville Inventive, 2012-2024, IGN, 2023.\n", 
-                            "Dataset average: ", avg_value),
+      text = stringr::str_c("Dataset average: ", avg_value,
+      "\nSource: Ville Idéale, 2012-2024, IGN, 2023."),
       position = tm_pos_out(cell.v = "bottom", cell.h = "center"),
       size = 0.8
     )
@@ -102,8 +105,9 @@ for (cat in categories_to_map) {
 map_environment
 
 # Mapping the ratio of comments per inhabitants by arrondissements
-generate_gradient_map(var = "comments_ratio", 
+map_ratio_comments <- generate_gradient_map(var = "comments_ratio", 
                       title = "Number of comments/1000 inhabitants")
+map_ratio_comments
 
 # Mapping the total count of comments per arrondissements
 tm_shape(comments_sf_ag) +
@@ -128,7 +132,7 @@ tm_shape(comments_sf_ag) +
 
 ## PLOTTING THE RATING DISTRIBUTIONS
 
-# crop the name to just keep arrondissement (extract number)
+# crop the name to just keep the arrondissement number
 commentaires_plm$arr_label <- str_extract(commentaires_plm$loc, "\\d{1,2}(ER|E) ARRONDISSEMENT")
 # convert it to a factor, ordered based on the number value so that the labels will appear in the right order when plotting
 commentaires_plm <- commentaires_plm %>%
@@ -138,6 +142,10 @@ commentaires_plm <- commentaires_plm %>%
     # Reorder arr_label factor levels based on [invert order of] arr_num
     arr_label = forcats::fct_reorder(arr_label, -arr_num)
   )
+
+# If needed for the $ville attribute
+commentaires_plm <- commentaires_plm %>%
+  mutate(ville = sapply(strsplit(as.character(loc), " "), function(x) x[1]))
 
 # Plotting the distribution by arrondissement in each city
 ggplot(data=commentaires_plm, aes(x=average, y=arr_label, fill=ville)) +
@@ -154,3 +162,23 @@ ggplot(data=commentaires_plm, aes(x=average, y=arr_label, fill=ville)) +
   ) +
   labs(title = "Distribution of ratings by arrondissements") + 
   facet_wrap(~ville, scales = "free_y")
+
+## TRYING TO CLASSIFY THE DISTRIBUTIONS BASED ON THEIR SHAPE
+
+quantiles <- seq(0, 1, by = 0.05)
+# Compute the quantiles by 'loc'
+comm_quantiles <- commentaires_plm %>%
+  group_by(loc) %>% # To get the quantiles per arrondissements
+  summarise(
+    quantiles = list(quantile(average, probs = quantiles, na.rm = TRUE)) # Getting it for the whole specific list of quantiles
+  ) %>%
+  tidyr::unnest_wider(quantiles, names_sep = "_q") # Creates a new column for each of the quantiles
+head(comm_quantiles)
+# Standardising (?) the values, to classify based on the shape and not on the values
+comm_quantiles.sd <- comm_quantiles[, -1] %>% 
+  t() %>% #Transposing to get the scale function operating vertically
+  scale(center = TRUE, scale = TRUE) %>%  #Standardising
+  t() %>% #Transposing it back to the original format
+  as_tibble() #t() function had turnt it into a matrix
+comm_quantiles.sd <- cbind(comm_quantiles[,1], comm_quantiles.sd) #Reattaching the arrondissements names
+comm_quantiles.sd
