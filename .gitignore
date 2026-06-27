@@ -1,1 +1,5 @@
 .DS_Store
+.Rproj.user
+Raw/
+Descriptive_analysis.R
+Data_extraction_formatting.R

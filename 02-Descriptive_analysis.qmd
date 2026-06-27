@@ -1,0 +1,404 @@
+---
+title: "Descriptive analysis"
+format: html
+editor: visual
+---
+
+# Importing the files and libraries
+
+```{r}
+library(dplyr)
+library(readr)
+library(sf)
+library(tmap)
+library(ggridges)
+library(ggplot2)
+library(stringr)
+library(here)
+```
+
+## Importing the formatted dataset 
+
+Which is derived from the previous script 01-Data_extraction_formatting.qmd 
+
+```{r}
+commentaires_plm <- read.csv(file = here::here("Derived/comments_PLM_25062026.csv"))
+
+```
+
+## Importing the spatial administrative layer, for mapping purposes
+
+Which can be downloaded from here: https://geoservices.ign.fr/adminexpress
+
+``` {r}
+arr <- sf::st_read(
+  here::here("Raw/Arrondissements/ARRONDISSEMENT_MUNICIPAL.shp")
+)
+
+```
+# Mapping the different indicators by arrondissements
+
+## Checking that the locality names are a suitable key attribute to join the two datasets
+
+```{r}
+
+commentaires_plm$loc <- factor(x = commentaires_plm$loc, 
+                               levels = sort(unique(commentaires_plm$loc))
+                               )
+
+arr$NOM_M <- factor(x = arr$NOM_M, 
+                    levels = sort(unique(arr$NOM_M))
+                    )
+head(unique(commentaires_plm$loc))
+
+head(unique(arr$NOM_M))
+
+```
+
+### Verifying that no diff exists between the two locality names vectors
+``` {r}
+setdiff(x = commentaires_plm$loc, 
+        y = arr$NOM_M)
+```
+
+## Matching the column names with the comments datasets and making the join
+
+``` {r}
+arr <- arr %>% rename(loc = NOM_M,
+                      pop = POPULATION)
+
+# Joining the geo layer to the comments dataset into a new variable
+
+comments_sf <- merge(x = arr[c("loc", "pop", "geometry")], #retaining the minimal attributes
+                     y = commentaires_plm)
+```
+
+## Aggregating the different indicators by arrondissement 
+
+Some **NA are generated and that's alright**, because the qualitative variables like "users" and "dates" cannot be grouped, hence turning off the warnings !
+
+``` {r}
+#| warning: false
+
+comments_sf_ag <- aggregate(x = comments_sf, 
+                            by=list(comments_sf$loc), 
+                            FUN= mean) %>%
+  mutate(loc = Group.1) %>% # Keeping the arrondissement name in the loc column
+  select(-Group.1)
+```
+
+## Updating the field to tell in which city each arrondissement is
+
+Which is useful for further grouping by city
+
+``` {r}
+# Splitting the location name when a space occurs, to retain only the first bit (i.e. the city name, without the arrondissement part)
+
+comments_sf_ag$ville <- sapply(strsplit(as.character(comments_sf_ag$loc), " "), `[`, 1)
+```
+
+## Computing the total of comments by arrondissements
+
+``` {r}
+
+count_comments <- comments_sf$loc %>% 
+  table() %>% 
+  as_tibble() 
+
+colnames(count_comments) <- c("loc", "nb_comments")
+
+# Joining the result to the table with the aggregate results (groupped by arrondissements)
+
+comments_sf_ag <- merge(comments_sf_ag, count_comments)
+```
+
+## Computing the ratio of comments per inhabitants
+
+``` {r}
+
+comments_sf_ag <- comments_sf_ag %>% 
+  mutate(comments_ratio = nb_comments/(pop/1000)) #using the population information that was included in the arrondissements spatial layer
+
+# Adding an arrondissement number (to use as labels on the maps ?)
+
+comments_sf_ag <- comments_sf_ag %>% mutate(num_label = as.numeric(str_extract(loc, "\\d+")))
+
+```
+
+# Mapping the various indicators by arrondissements
+
+## Writing the function for the different variables and indicators
+
+``` {r}
+generate_gradient_map <- function(var, title) {
+  
+  # Calculate the average to put it in the map credits
+  
+  avg_value <- round(mean(comments_sf_ag[[var]], na.rm = TRUE), 2)
+  
+  # Generate the map
+  
+  map <- tm_shape(comments_sf_ag) +
+    tm_fill( # have to think about this part: rather fixed bins ? 
+      col = var,
+      palette = "viridis",
+      title = title,
+      style = 'cont',
+      textNA = "",
+      legend.is.portrait = FALSE
+    ) +
+    tm_facets(by = "ville") +
+    #tm_labels(text = "num_label") + # labelling to improve
+    tm_scalebar(position = c("left", "bottom"), width = 8) +
+    tm_layout(
+      legend.outside = TRUE,
+      legend.title.size = 1,
+      legend.title.fontfamily = "Avenir Next",
+      legend.title.fontface = "bold",
+      legend.text.size = 0.8,
+      legend.orientation = "landscape",
+      legend.position = tm_pos_out(cell.v = "bottom", cell.h = "center")
+    ) +
+    tm_credits(
+      text = stringr::str_c(
+        "Dataset average: ",
+        avg_value,
+        "\nSource: Comments $ (2012-2026), IGN (2023)."
+      ),
+      position = tm_pos_out(cell.v = "bottom", cell.h = "center"),
+      size = 0.8
+    )
+  
+  # Preparing the filename to export the map
+  
+  file <- paste("map-", title, ".png", sep = "")
+  
+  # Saving the map in the figures/ folder
+  
+  tmap_save(tm = map, 
+            filename = here::here("Figures", file), 
+            width = 2880,
+            height = 1588
+            )
+}
+```
+
+## Mapping the average grading by arrondissements
+
+``` {r}
+
+generate_gradient_map(var = "average", 
+                      title = "Average general rating (over 10)")
+
+# Mapping all the other grading categories
+
+categories_to_map <- colnames(comments_sf%>%st_drop_geometry())[6:14]  #can be updated to get a restricted set of categories
+
+categories_to_map # checking the selected categories
+
+for (cat in categories_to_map) {
+  category_labels <- c(
+    environment = "environment",
+    transports = "transportation",
+    securite = "safety",
+    sante = "health",
+    sp_loisirs = "sports and leisure",
+    culture = "culture",
+    enseignement = "education",
+    commerces = "commerce",
+    qualite_de_vie = "quality of life"
+  )
+  cat_label <- category_labels[cat]
+  map <- generate_gradient_map(var = cat, 
+                        title = paste("Average", cat_label, "rating (over 10)"))
+  assign(paste0("map_", cat), map)
+}
+
+```
+## Mapping the ratio of comments per inhabitants by arrondissements
+
+``` {r}
+map_ratio_comments <- generate_gradient_map(var = "comments_ratio", 
+                      title = "Number of comments (per 1000 inhabitants)")
+```
+## Mapping the total count of comments per arrondissements
+
+``` {r}
+
+map_nb_comments <- tm_shape(comments_sf_ag) +
+  tm_polygons(
+        col = "ville",
+        palette = c(
+            scales::alpha("red", 0.8),
+            scales::alpha("cyan", 0.4),
+            scales::alpha("blue", 0.8)
+        ),
+        legend.show = FALSE,
+        style = "cat"
+  ) +
+  tm_symbols(
+    size = "nb_comments",
+    title.size = "Number of comments:",
+    sizes.legend = c(10, 25, 50, 100, 150),
+    sizes.legend.labels = c(10, 25, 50, 100, 150)
+  ) +
+  tm_facets(by = "ville") +
+  tm_layout(
+    legend.outside = TRUE,
+    legend.title.size = 1,
+    legend.title.fontfamily = "Avenir Next",
+    legend.title.fontface = "bold",
+    legend.text.size = 0.8,
+    legend.orientation = "landscape",
+    legend.position = tm_pos_out(cell.v = "bottom", cell.h = "center")
+  ) +
+  tm_scalebar(position = c("left", "bottom"), width = 8) +
+  tm_credits(
+    text = stringr::str_c(
+      "Source: Comments (2012-2026), IGN (2023).\n",
+      "Dataset average: ",
+      round(mean(comments_sf_ag$average), 2)
+    ),
+    position = tm_pos_out(cell.v = "bottom", cell.h = "center"),
+    size = 0.8
+  )
+  
+
+tmap_save(
+  tm = map_nb_comments,
+  filename = here::here("Figures", "map-Number-of-comments.png"), 
+  width = 2880,
+  height = 1588
+  )
+```
+
+# Plotting the rating distributions
+
+## Writing the function to generate the plots
+
+``` {r}
+generate_ridgeline_plot <- function(var, title) {
+ 
+  ridge_plot <- ggplot(data = commentaires_plm, 
+                       aes(x = .data[[var]], 
+                           y = arr_label, 
+                           fill = ville)
+  ) +
+    stat_density_ridges(
+      geom = "density_ridges_gradient", 
+      calc_ecdf = TRUE,
+      quantiles = 2, 
+      quantile_lines = TRUE
+    ) +
+    theme_minimal()+
+    scale_fill_manual(values = c(
+    "PARIS" = scales::alpha("blue", 0.4),
+    "LYON" = scales::alpha("red", 0.4),
+    "MARSEILLE" = scales::alpha("cyan", 0.4))
+    ) +
+    # scale_fill_viridis_d(
+    #   alpha=.4,
+    #   direction = -1,
+    #   option = "H"
+    #  ) +
+    xlab("ratings")+
+    scale_x_continuous(breaks = seq(0, 10,by = 1)) +
+    theme(legend.position = "none", 
+          plot.title = element_text(hjust = 0.5, face = "bold", size=18),
+          axis.title.y = element_blank(),
+    ) +
+    labs(title = title
+    ) + 
+    facet_wrap(~ville, 
+               scales = "free_y")
+    
+  
+  # Displaying the plot
+  
+  ridge_plot
+  
+  # Preparing the filename to export the graph
+  
+  file <- paste("density-ridges-", title, ".png", sep = "")
+  
+  # Exporting the plot
+  
+  ggplot2::ggsave(plot = ridge_plot,
+                  filename = file,
+                  path = here::here("Figures/"),
+                  width = 2880,
+                  height = 1588,
+                  units = "px")
+}
+```
+
+
+## Crop the name to just keep the arrondissement number
+
+Used for label on the carts
+
+``` {r}
+commentaires_plm$arr_label <- str_extract(commentaires_plm$loc, "\\d{1,2}(ER|E) ARRONDISSEMENT")
+```
+
+## Convert it into a factor 
+
+The order is based on the number value so that the labels will appear in the right order when plotting
+
+``` {r}
+commentaires_plm <- commentaires_plm %>%
+  mutate(
+    
+    # Extract the number only (e.g. "1" from "1ER ARRONDISSEMENT")
+    
+    arr_num = as.numeric(str_extract(arr_label, "\\d+")),
+    
+    # Reorder arr_label factor levels based on [invert order of] arr_num
+    
+    arr_label = forcats::fct_reorder(arr_label, -arr_num)
+  )
+```
+
+
+## Also creating a $ville attribute
+
+That can be used to facet the plots based with respect to the city
+
+``` {r}
+commentaires_plm <- commentaires_plm %>%
+  mutate(ville = sapply(strsplit(as.character(loc), " "), 
+                        function(x) x[1]))
+```
+
+
+## Finally: plotting the distribution by arrondissement in each city, for each indicator
+
+``` {r}
+
+# Plotting the average grade to see that everything works correctly
+
+generate_ridgeline_plot(var = "average", 
+                      title = "Average general rating (over 10)")
+
+# Mapping all the other grading categories
+
+
+for (cat in categories_to_map) {
+  category_labels <- c(
+    environment = "environment",
+    transports = "transportation",
+    securite = "safety",
+    sante = "health",
+    sp_loisirs = "sports and leisure",
+    culture = "culture",
+    enseignement = "education",
+    commerces = "commerce",
+    qualite_de_vie = "quality of life"
+  )
+  cat_label <- category_labels[cat]
+  plot <- generate_ridgeline_plot(var = cat, 
+                        title = paste("Average", cat_label, "rating (over 10)"))
+  assign(paste0("map_", cat), plot)
+}
+
+```
